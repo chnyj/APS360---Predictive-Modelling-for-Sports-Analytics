@@ -56,7 +56,7 @@ all_filtered_player_stats = process_player_stats(all_nba_players, timeout_value,
 combined_filtered_player_stats_df = pd.concat(all_filtered_player_stats, ignore_index=True)
 
 # Define the CSV file details
-csv_filename = 'nba_players_career_stats_2018_2023.csv'
+csv_filename = 'data_2018_2023.csv'
 csv_file = "/Users/chennyjiang/Desktop/" + csv_filename
 
 # Save the combined DataFrame to a CSV file
