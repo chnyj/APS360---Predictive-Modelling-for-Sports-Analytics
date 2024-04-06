@@ -65,7 +65,7 @@ from copy import deepcopy
 # Constants
 FILE_PATH = '/content/data_2018_2023.csv'
 FEATURES = ['FGA', 'PTS', 'MIN', 'FGM', 'TOV', 'STL', 'GP', 'GS']
-TARGET = 'FG3A'
+TARGET = 'FG3M'
 SEED = 42
 
 # Set seed for reproducibility
