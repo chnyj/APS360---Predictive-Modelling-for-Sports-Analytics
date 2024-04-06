@@ -1,55 +1,43 @@
-"""# Feature Selection
-After downloading the csv of player stats (it was a json but we converted it so we could easier integrate it with pandas), we ran some basic statistical tests on the numeric variables (since there were only 5 years anyway, so things like player name and years played would have a negative effect on the efficacy of the model). The goal here was to determine which values had the highest correlation to Assists, which were our value we were trying to predict.
-"""
-
+###### FEATURE SELECTION ######
 import pandas as pd
-
-all_players_df = pd.read_csv("/content/all_players_career_stats_2018_2023.csv")
-all_players_df.head()
-
-# Assuming your target variable is 'AST'
-target_variable = 'AST'
-
-# Calculate correlations with the target variable
-correlations = all_players_df.corr()[target_variable].abs().sort_values(ascending=False)
-
-# Print the top correlated features
-print("Top Correlated Features:")
-print(correlations.head(8))
-
 from sklearn.feature_selection import RFE
 from sklearn.linear_model import LinearRegression
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
 
+def custom_feature_selection(data_path):
+    players_data = pd.read_csv(data_path)
+    players_data = players_data.iloc[:, 5:-2]
 
-# Calculate correlations with the target variable
-correlations = all_players_df.corr()['AST'].abs().sort_values(ascending=False)
+    # Define target variable (to be predicted)
+    target_variable = 'FG3M'
 
-# Select the top 8 correlated features
-selected_features = correlations.index[1:9]  # Excluding the target variable
+    # Calculate correlations
+    correlations = players_data.corr()[target_variable].abs().sort_values(ascending=False)
 
-# Extract features and target
-X = all_players_df[selected_features]
-y = all_players_df['AST'].values
+    # Select top correlated features
+    selected_features = correlations.index[1:10]
 
-# Split the data into training and testing sets
-X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+    # Extract features and target
+    X = players_data[selected_features]
+    y = players_data[target_variable].values
 
-# Create a linear regression model
-model = LinearRegression()
+    # Split data: train, val, test
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3, random_state=42)
+    X_val, X_test, y_val, y_test = train_test_split(X_test, y_test, test_size=0.5, random_state=42)
 
-# Initialize RFE
-rfe = RFE(model, n_features_to_select=8)  # Set the number of features you want to select
+    # Create model
+    model = LinearRegression()
 
-# Fit RFE on the training data
-X_train_rfe = rfe.fit_transform(X_train, y_train)
+    # RFE
+    feature_selector = RFE(model, n_features_to_select=9)
+    X_train_selected = feature_selector.fit_transform(X_train, y_train)
+    selected_features_rfe = X.columns[feature_selector.support_]
 
-# Get the selected features
-selected_features_rfe = X.columns[rfe.support_]
+    # Print selected features
+    print("Top 8 Correlated Features:", selected_features_rfe[1:10])
 
-# Print the selected features
-print("Top 8 Correlated Features:", selected_features_rfe)
+    return X_train_selected, X_test, y_train, y_test
 
 """# Training the 1st Iteration of the Model
 After finding the top 8 correlated features, we now knew what to target in our model. This was the most complicated portion of our process. We did not know whether we wanted to use a simple pass-forward Neural Network, or use some other sort of Machine Learning Algorithm. Eventually, we compared Random Forest Classification, a simple forward-feeding CNN, and a LSTM-Based RNN. We found that of the 3, the RNN had by far the most efficacy in reducing loss (MSE) and variance (R-Squared) (most likely due to the complexity of the model).
@@ -75,9 +63,9 @@ from copy import deepcopy
 
 
 # Constants
-FILE_PATH = '/content/all_players_career_stats_2018_2023.csv'
-FEATURES = ['TOV', 'FGA', 'PTS', 'FGM', 'STL', 'MIN', 'FTM', 'FTA']
-TARGET = 'AST'
+FILE_PATH = '/content/data_2018_2023.csv'
+FEATURES = ['FGA', 'PTS', 'MIN', 'FGM', 'TOV', 'STL', 'GP', 'GS']
+TARGET = 'FG3A'
 SEED = 42
 
 # Set seed for reproducibility
@@ -86,7 +74,7 @@ tf.random.set_seed(SEED)
 
 # Load data
 def load_data(file_path):
-    return pd.read_csv('/content/all_players_career_stats_2018_2023.csv')
+    return pd.read_csv('/content/data_2018_2023.csv')
 
 # Preprocess data
 def preprocess_data(data):
@@ -129,24 +117,17 @@ def create_rnn_model(input_shape):
     return model
 
 # Train RNN model
-def train_rnn_model(model, X_train, y_train, epochs=1000, batch_size=32, callbacks=None):
-    # Early stopping callback
-    early_stopping = EarlyStopping(monitor='val_loss', patience=50, restore_best_weights=True)
-
-    # Combine user-provided callbacks with early stopping
-    all_callbacks = [early_stopping] if callbacks is None else [early_stopping] + callbacks
-
+def train_rnn_model(model, X_train, y_train, epochs=500, batch_size=32):
     # Reshape input for sequence modeling
     X_train_reshaped = X_train.reshape((X_train.shape[0], 1, X_train.shape[1]))
 
-    # Train the model with combined callbacks
+    # Train the model
     model.fit(
         X_train_reshaped, y_train,
         epochs=epochs,
         batch_size=batch_size,
         verbose=1,
-        validation_split=0.2,
-        callbacks=all_callbacks
+        validation_split=0.2
     )
 
 # Evaluate RNN model
@@ -199,46 +180,26 @@ if __name__ == "__main__":
     iso_forest = IsolationForest(contamination=0.05, random_state=SEED)
     outlier_labels = iso_forest.fit_predict(X_train)
     outlier_indices = np.where(outlier_labels == -1)[0]
-    X_train_no_outliers = np.delete(X_train, outlier_indices, axis=0)
-    y_train_no_outliers = np.delete(y_train, outlier_indices)
 
-    # Train the RNN model with outliers
+    # Train the RNN model
     rnn_model_with_outliers = create_rnn_model(X_train.shape[1])
     train_rnn_model(rnn_model_with_outliers, X_train, y_train)
 
-    # Evaluate the model on the test set with outliers
+    # Evaluate the model on the test set  
     rnn_pred_with_outliers, rnn_mse_with_outliers, rnn_rmse_with_outliers, rnn_mae_with_outliers, rnn_r2_with_outliers = evaluate_rnn_model(rnn_model_with_outliers, X_test, y_test)
 
-    # Print or use the evaluation metrics for the model with outliers
-    print("\nRNN Model Metrics with Outliers:")
+    # Print or use the evaluation metrics for the model 
+    print("\nRNN Model Metrics:")
     print("MSE:", rnn_mse_with_outliers)
     print("RMSE:", rnn_rmse_with_outliers)
     print("MAE:", rnn_mae_with_outliers)
     print("R-squared:", rnn_r2_with_outliers)
 
-    # Plot results for the model with outliers
+    # Plot results for the model 
     plot_results_rnn(y_test, rnn_pred_with_outliers.flatten(), y_test - rnn_pred_with_outliers.flatten())
-
-    # Train the RNN model without outliers
-    rnn_model_no_outliers = create_rnn_model(X_train_no_outliers.shape[1])
-    train_rnn_model(rnn_model_no_outliers, X_train_no_outliers, y_train_no_outliers)
-
-    # Evaluate the model on the test set without outliers
-    rnn_pred_no_outliers, rnn_mse_no_outliers, rnn_rmse_no_outliers, rnn_mae_no_outliers, rnn_r2_no_outliers = evaluate_rnn_model(rnn_model_no_outliers, X_test, y_test)
-
-    # Print or use the evaluation metrics for the model without outliers
-    print("\nRNN Model Metrics without Outliers:")
-    print("MSE:", rnn_mse_no_outliers)
-    print("RMSE:", rnn_rmse_no_outliers)
-    print("MAE:", rnn_mae_no_outliers)
-    print("R-squared:", rnn_r2_no_outliers)
-
-    # Plot results for the model without outliers
-    plot_results_rnn(y_test, rnn_pred_no_outliers.flatten(), y_test - rnn_pred_no_outliers.flatten())
 
     # RNN Model Summary
     rnn_model_with_outliers.summary()
-    rnn_model_no_outliers.summary()
 
     # Organize code into functions for different tasks
 def isolation_forest_outlier_removal(X_train, contamination=0.05):
